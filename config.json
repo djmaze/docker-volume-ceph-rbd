@@ -1,8 +1,8 @@
 {
-    "description": "sshFS plugin for Docker",
+    "description": "Ceph-RBD plugin for Docker",
     "documentation": "https://docs.docker.com/engine/extend/plugins/",
     "entrypoint": [
-        "/docker-volume-sshfs"
+        "/docker-volume-ceph-rbd"
     ],
     "env": [
         {
@@ -14,7 +14,7 @@
         }
     ],
     "interface": {
-        "socket": "sshfs.sock",
+        "socket": "ceph-rbd.sock",
         "types": [
             "docker.volumedriver/1.0"
         ]
@@ -23,11 +23,7 @@
         "capabilities": [
             "CAP_SYS_ADMIN"
         ],
-        "devices": [
-            {
-                "path": "/dev/fuse"
-            }
-        ]
+        "allowAllDevices": true
     },
     "mounts": [
         {
@@ -36,6 +32,30 @@
                 "rbind"
             ],
             "source": "/var/lib/docker/plugins/",
+            "type": "bind"
+        },
+        {
+            "destination": "/host/sys/bus/rbd",
+            "options": [
+                "rbind"
+            ],
+            "source": "/sys/bus/rbd",
+            "type": "bind"
+        },
+        {
+            "destination": "/host/sys/devices/rbd",
+            "options": [
+                "rbind"
+            ],
+            "source": "/sys/devices/rbd",
+            "type": "bind"
+        },
+        {
+            "destination": "/dev",
+            "options": [
+                "rbind"
+            ],
+            "source": "/dev",
             "type": "bind"
         }
     ],

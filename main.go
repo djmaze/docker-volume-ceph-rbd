@@ -17,32 +17,35 @@ import (
 	"github.com/docker/go-plugins-helpers/volume"
 )
 
-const socketAddress = "/run/docker/plugins/sshfs.sock"
+const socketAddress = "/run/docker/plugins/ceph-rbd.sock"
 
-type sshfsVolume struct {
-	Password string
-	Sshcmd   string
-	Port     string
+type cephRbdVolume struct {
+	Pool     string
+	Rbd      string
+	Hosts    string
+	Username string
+	Secret   string
 
+	RbdNum      int
 	Mountpoint  string
 	connections int
 }
 
-type sshfsDriver struct {
+type cephRbdDriver struct {
 	sync.RWMutex
 
 	root      string
 	statePath string
-	volumes   map[string]*sshfsVolume
+	volumes   map[string]*cephRbdVolume
 }
 
-func newSshfsDriver(root string) (*sshfsDriver, error) {
+func newCephRbdDriver(root string) (*cephRbdDriver, error) {
 	logrus.WithField("method", "new driver").Debug(root)
 
-	d := &sshfsDriver{
+	d := &cephRbdDriver{
 		root:      filepath.Join(root, "volumes"),
-		statePath: filepath.Join(root, "state", "sshfs-state.json"),
-		volumes:   map[string]*sshfsVolume{},
+		statePath: filepath.Join(root, "state", "ceph-rbd-state.json"),
+		volumes:   map[string]*cephRbdVolume{},
 	}
 
 	data, err := ioutil.ReadFile(d.statePath)
@@ -61,7 +64,7 @@ func newSshfsDriver(root string) (*sshfsDriver, error) {
 	return d, nil
 }
 
-func (d *sshfsDriver) saveState() {
+func (d *cephRbdDriver) saveState() {
 	data, err := json.Marshal(d.volumes)
 	if err != nil {
 		logrus.WithField("statePath", d.statePath).Error(err)
@@ -73,39 +76,57 @@ func (d *sshfsDriver) saveState() {
 	}
 }
 
-func (d *sshfsDriver) Create(r volume.Request) volume.Response {
+func (d *cephRbdDriver) Create(r volume.Request) volume.Response {
 	logrus.WithField("method", "create").Debugf("%#v", r)
 
 	d.Lock()
 	defer d.Unlock()
-	v := &sshfsVolume{}
+	v := &cephRbdVolume{}
 
 	for key, val := range r.Options {
 		switch key {
-		case "sshcmd":
-			v.Sshcmd = val
-		case "password":
-			v.Password = val
-		case "port":
-			v.Port = val
+		case "pool":
+			v.Pool = val
+		case "rbd":
+			v.Rbd = val
+		case "hosts":
+			v.Hosts = val
+		case "username":
+			v.Username = val
+		case "secret":
+			v.Secret = val
 		default:
 			return responseError(fmt.Sprintf("unknown option %q", val))
 		}
 	}
 
-	if v.Sshcmd == "" {
-		return responseError("'sshcmd' option required")
+	if v.Pool == "" {
+		return responseError("'pool' option required")
 	}
-	v.Mountpoint = filepath.Join(d.root, fmt.Sprintf("%x", md5.Sum([]byte(v.Sshcmd))))
+	if v.Rbd == "" {
+		return responseError("'rbd' option required")
+	}
+	if v.Hosts == "" {
+		return responseError("'hosts' option required")
+	}
+	if v.Username == "" {
+		return responseError("'username' option required")
+	}
+	if v.Secret == "" {
+		return responseError("'secret' option required")
+	}
+	v.Mountpoint = filepath.Join(d.root, fmt.Sprintf("%x", md5.Sum([]byte(v.Rbd)))) // TODO Include pool, hosts
 
 	d.volumes[r.Name] = v
 
 	d.saveState()
 
+	logrus.WithField("method", "create").Debugf("Saved mountpoint %s", v.Mountpoint)
+
 	return volume.Response{}
 }
 
-func (d *sshfsDriver) Remove(r volume.Request) volume.Response {
+func (d *cephRbdDriver) Remove(r volume.Request) volume.Response {
 	logrus.WithField("method", "remove").Debugf("%#v", r)
 
 	d.Lock()
@@ -127,7 +148,7 @@ func (d *sshfsDriver) Remove(r volume.Request) volume.Response {
 	return volume.Response{}
 }
 
-func (d *sshfsDriver) Path(r volume.Request) volume.Response {
+func (d *cephRbdDriver) Path(r volume.Request) volume.Response {
 	logrus.WithField("method", "path").Debugf("%#v", r)
 
 	d.RLock()
@@ -141,7 +162,7 @@ func (d *sshfsDriver) Path(r volume.Request) volume.Response {
 	return volume.Response{Mountpoint: v.Mountpoint}
 }
 
-func (d *sshfsDriver) Mount(r volume.MountRequest) volume.Response {
+func (d *cephRbdDriver) Mount(r volume.MountRequest) volume.Response {
 	logrus.WithField("method", "mount").Debugf("%#v", r)
 
 	d.Lock()
@@ -176,7 +197,7 @@ func (d *sshfsDriver) Mount(r volume.MountRequest) volume.Response {
 	return volume.Response{Mountpoint: v.Mountpoint}
 }
 
-func (d *sshfsDriver) Unmount(r volume.UnmountRequest) volume.Response {
+func (d *cephRbdDriver) Unmount(r volume.UnmountRequest) volume.Response {
 	logrus.WithField("method", "unmount").Debugf("%#v", r)
 
 	d.Lock()
@@ -189,7 +210,7 @@ func (d *sshfsDriver) Unmount(r volume.UnmountRequest) volume.Response {
 	v.connections--
 
 	if v.connections <= 0 {
-		if err := d.unmountVolume(v.Mountpoint); err != nil {
+		if err := d.unmountVolume(v); err != nil {
 			return responseError(err.Error())
 		}
 		v.connections = 0
@@ -198,7 +219,7 @@ func (d *sshfsDriver) Unmount(r volume.UnmountRequest) volume.Response {
 	return volume.Response{}
 }
 
-func (d *sshfsDriver) Get(r volume.Request) volume.Response {
+func (d *cephRbdDriver) Get(r volume.Request) volume.Response {
 	logrus.WithField("method", "get").Debugf("%#v", r)
 
 	d.Lock()
@@ -212,7 +233,7 @@ func (d *sshfsDriver) Get(r volume.Request) volume.Response {
 	return volume.Response{Volume: &volume.Volume{Name: r.Name, Mountpoint: v.Mountpoint}}
 }
 
-func (d *sshfsDriver) List(r volume.Request) volume.Response {
+func (d *cephRbdDriver) List(r volume.Request) volume.Response {
 	logrus.WithField("method", "list").Debugf("%#v", r)
 
 	d.Lock()
@@ -225,29 +246,58 @@ func (d *sshfsDriver) List(r volume.Request) volume.Response {
 	return volume.Response{Volumes: vols}
 }
 
-func (d *sshfsDriver) Capabilities(r volume.Request) volume.Response {
+func (d *cephRbdDriver) Capabilities(r volume.Request) volume.Response {
 	logrus.WithField("method", "capabilities").Debugf("%#v", r)
 
 	return volume.Response{Capabilities: volume.Capability{Scope: "local"}}
 }
 
-func (d *sshfsDriver) mountVolume(v *sshfsVolume) error {
-	cmd := exec.Command("sshfs", "-oStrictHostKeyChecking=no", v.Sshcmd, v.Mountpoint)
-	if v.Port != "" {
-		cmd.Args = append(cmd.Args, "-p", v.Port)
+func (d *cephRbdDriver) mountVolume(v *cephRbdVolume) error {
+	fileName := "/host/sys/bus/rbd/add"
+	mountString := fmt.Sprintf("%s name=%s,secret=%s %s %s", v.Hosts, v.Username, v.Secret, v.Pool, v.Rbd)
+
+	if err := ioutil.WriteFile(fileName, []byte(mountString), 0600); err != nil {
+		logrus.WithField("mountvolume", v.Rbd).Error(err)
+		return err
 	}
-	if v.Password != "" {
-		cmd.Args = append(cmd.Args, "-p", v.Port, "-o", "workaround=rename", "-o", "password_stdin")
-		cmd.Stdin = strings.NewReader(v.Password)
+
+	num, err := findRbdNum(v)
+	if err != nil {
+		return err
 	}
+	v.RbdNum = num
+
+	cmd := exec.Command("mount", fmt.Sprintf("/dev/rbd%d", v.RbdNum), v.Mountpoint)
 	logrus.Debug(cmd.Args)
 	return cmd.Run()
 }
 
-func (d *sshfsDriver) unmountVolume(target string) error {
-	cmd := fmt.Sprintf("umount %s", target)
+func (d *cephRbdDriver) unmountVolume(v *cephRbdVolume) error {
+	cmd := fmt.Sprintf("umount %s", v.Mountpoint)
 	logrus.Debug(cmd)
-	return exec.Command("sh", "-c", cmd).Run()
+	if err := exec.Command("sh", "-c", cmd).Run(); err != nil {
+		return err
+	}
+
+	return ioutil.WriteFile("/host/sys/bus/rbd/remove", []byte(strconv.Itoa(v.RbdNum)), 0600)
+}
+
+func findRbdNum(v *cephRbdVolume) (int, error) {
+	// FIXME Use pool for searching as well
+	cmd := fmt.Sprintf("grep -l %s /host/sys/devices/rbd/*/name | egrep -o '[0-9]+' | head -n1", v.Rbd)
+	logrus.Debug(cmd)
+	output, err := exec.Command("sh", "-c", cmd).Output()
+	logrus.Debug(output)
+	if err != nil {
+		return -1, err
+	}
+
+	num, err := strconv.Atoi(strings.TrimSpace(string(output)))
+	if err != nil {
+		return -1, err
+	}
+
+	return num, nil
 }
 
 func responseError(err string) volume.Response {
@@ -261,7 +311,7 @@ func main() {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
 
-	d, err := newSshfsDriver("/mnt")
+	d, err := newCephRbdDriver("/mnt")
 	if err != nil {
 		log.Fatal(err)
 	}

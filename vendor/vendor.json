@@ -75,5 +75,5 @@
 			"revisionTime": "2017-02-01T04:15:14Z"
 		}
 	],
-	"rootPath": "github.com/vieux/docker-volume-sshfs"
+	"rootPath": "github.com/djmaze/docker-volume-ceph-rbd"
 }

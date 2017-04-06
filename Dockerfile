@@ -1,9 +1,7 @@
 FROM alpine
 
-RUN apk update && apk add sshfs
-
 RUN mkdir -p /run/docker/plugins /mnt/state /mnt/volumes
 
-COPY docker-volume-sshfs docker-volume-sshfs
+COPY docker-volume-ceph-rbd docker-volume-ceph-rbd
 
-CMD ["docker-volume-sshfs"]
+CMD ["docker-volume-ceph-rbd"]
