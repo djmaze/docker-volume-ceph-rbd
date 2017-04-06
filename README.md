@@ -13,13 +13,13 @@ Also, it does not yet support volume locking. That means it does not prevent att
 1 - Install the plugin
 
 ```
-$ docker plugin install  # or docker plugin install djmaze/ceph-rbd DEBUG=1
+$ docker plugin install mazzolino/ceph-rbd  # or docker plugin install mazzolino/ceph-rbd DEBUG=1
 ```
 
 2 - Create a volume
 
 ```
-$ docker volume create -d djmaze/ceph-rbd -o hosts=<ip1,ip2,..> -o pool=<poolname> -o rbd=<rbdname> -o username=<username> -o secret=<secret> rbdvolume
+$ docker volume create -d mazzolino/ceph-rbd -o hosts=<ip1,ip2,..> -o pool=<poolname> -o rbd=<rbdname> -o username=<username> -o secret=<secret> rbdvolume
 rbdvolume
 $ docker volume ls
 DRIVER              VOLUME NAME
@@ -28,7 +28,7 @@ local               842a765a9bb11e234642c933b3dfc702dee32b73e0cf7305239436a145b8
 local               9d72c664cbd20512d4e3d5bb9b39ed11e4a632c386447461d48ed84731e44034
 local               be9632386a2d396d438c9707e261f86fd9f5e72a7319417901d84041c8f14a4d
 local               e1496dfe4fa27b39121e4383d1b16a0a7510f0de89f05b336aab3c0deb4dda0e
-djmaze/ceph-rbd     rbdvolume
+mazzolino/ceph-rbd     rbdvolume
 ```
 
 3 - Use the volume
